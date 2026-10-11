@@ -6,11 +6,14 @@ const app = express()
 
 app.use(express.json())
 app.use(cookieParser())
+const allowedOrigins = [
+    "http://localhost:5173",
+    "http://54.174.77.245:5173",
+    ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(",").map(url => url.trim()) : [])
+]
+
 app.use(cors({
-    origin: [
-        "http://localhost:5173",
-        "http://54.174.77.245:5173"
-    ],
+    origin: allowedOrigins,
     credentials: true
 }));
 
