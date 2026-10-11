@@ -27,10 +27,37 @@ const authRouter = require("./routes/auth.routes")
 const interviewRouter = require("./routes/interview.routes")
 
 
+const mongoose = require("mongoose")
+
+/* health check and root endpoints */
+app.get("/", (req, res) => {
+    res.json({
+        message: "Career Platform API is running",
+        timestamp: new Date().toISOString()
+    })
+})
+
+app.get("/api/health", (req, res) => {
+    const states = ["disconnected", "connected", "connecting", "disconnecting"]
+    res.json({
+        status: "ok",
+        database: states[mongoose.connection.readyState] || "unknown",
+        hasJwtSecret: !!process.env.JWT_SECRET,
+        hasMongoUri: !!process.env.MONGO_URI,
+        hasGeminiKey: !!process.env.GOOGLE_GENAI_API_KEY
+    })
+})
+
 /* using all the routes here */
 app.use("/api/auth", authRouter)
 app.use("/api/interview", interviewRouter)
 
-
+/* error handling middleware */
+app.use((err, req, res, next) => {
+    console.error("Global Error Handler:", err)
+    res.status(err.status || 500).json({
+        message: err.message || "Internal server error"
+    })
+})
 
 module.exports = app
