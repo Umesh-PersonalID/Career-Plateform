@@ -37,16 +37,29 @@ app.get("/", (req, res) => {
     })
 })
 
-app.get("/api/health", (req, res) => {
-    const states = ["disconnected", "connected", "connecting", "disconnecting"]
-    res.json({
-        status: "ok",
-        database: states[mongoose.connection.readyState] || "unknown",
-        hasJwtSecret: !!process.env.JWT_SECRET,
-        hasMongoUri: !!process.env.MONGO_URI,
-        hasGeminiKey: !!process.env.GOOGLE_GENAI_API_KEY
-    })
-})
+app.get("/api/health", async (req, res) => {
+  const states = ["disconnected", "connected", "connecting", "disconnecting"];
+  let dbStatus = states[mongoose.connection.readyState] || "unknown";
+
+  try {
+    // Actively pings the MongoDB Atlas cluster over the wire
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.admin().ping();
+      dbStatus = "connected";
+    }
+  } catch (error) {
+    dbStatus = "error";
+  }
+
+  res.json({
+    status: "ok",
+    database: dbStatus,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    hasMongoUri: !!process.env.MONGO_URI,
+    hasGeminiKey: !!process.env.GOOGLE_GENAI_API_KEY
+  });
+});
+
 
 /* using all the routes here */
 app.use("/api/auth", authRouter)
