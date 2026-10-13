@@ -32,17 +32,41 @@ const interviewReportSchema = z.object({
     title: z.string().describe("The title of the job for which the interview report is generated"),
 })
 
+const FALLBACK_MODELS = [
+    "gemini-flash-latest",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite"
+]
+
+async function generateWithModelFallback(params) {
+    let lastError = null
+    for (const model of FALLBACK_MODELS) {
+        try {
+            return await ai.models.generateContent({
+                ...params,
+                model
+            })
+        } catch (err) {
+            console.warn(`Gemini model ${model} failed with ${err.status || err.message}, checking fallback...`)
+            lastError = err
+            // If it's a 503 (high demand) or 429 (rate limit) or 500 (server error), try fallback
+            if (err.status !== 503 && err.status !== 429 && err.status !== 500) {
+                throw err
+            }
+        }
+    }
+    throw lastError
+}
+
 async function generateInterviewReport({ resume, selfDescription, jobDescription }) {
 
-
     const prompt = `Generate an interview report for a candidate with the following details:
-                        Resume: ${resume}
-                        Self Description: ${selfDescription}
+                        Resume: ${resume || 'None provided'}
+                        Self Description: ${selfDescription || 'None provided'}
                         Job Description: ${jobDescription}
 `
 
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+    const response = await generateWithModelFallback({
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -50,8 +74,14 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
         }
     })
 
-    return JSON.parse(response.text)
+    let text = response.text.trim()
+    if (text.startsWith("```json")) {
+        text = text.replace(/^```json/, "").replace(/```$/, "").trim()
+    } else if (text.startsWith("```")) {
+        text = text.replace(/^```/, "").replace(/```$/, "").trim()
+    }
 
+    return JSON.parse(text)
 
 }
 
@@ -59,27 +89,33 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
 
 async function generatePdfFromHtml(htmlContent) {
     const browser = await puppeteer.launch({
+        headless: true,
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage"
+            "--disable-dev-shm-usage",
+            "--disable-gpu"
         ]
     })
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" })
+    try {
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: "networkidle0" })
 
-    const pdfBuffer = await page.pdf({
-        format: "A4", margin: {
-            top: "20mm",
-            bottom: "20mm",
-            left: "15mm",
-            right: "15mm"
-        }
-    })
+        const pdfBuffer = await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: {
+                top: "20mm",
+                bottom: "20mm",
+                left: "15mm",
+                right: "15mm"
+            }
+        })
 
-    await browser.close()
-
-    return pdfBuffer
+        return pdfBuffer
+    } finally {
+        await browser.close()
+    }
 }
 
 async function generateResumePdf({ resume, selfDescription, jobDescription }) {
@@ -89,8 +125,8 @@ async function generateResumePdf({ resume, selfDescription, jobDescription }) {
     })
 
     const prompt = `Generate resume for a candidate with the following details:
-                        Resume: ${resume}
-                        Self Description: ${selfDescription}
+                        Resume: ${resume || 'None provided'}
+                        Self Description: ${selfDescription || 'None provided'}
                         Job Description: ${jobDescription}
 
                         the response should be a JSON object with a single field "html" which contains the HTML content of the resume which can be converted to PDF using any library like puppeteer.
@@ -101,8 +137,7 @@ async function generateResumePdf({ resume, selfDescription, jobDescription }) {
                         The resume should not be so lengthy, it should ideally be 1-2 pages long when converted to PDF. Focus on quality rather than quantity and make sure to include all the relevant information that can increase the candidate's chances of getting an interview call for the given job description.
                     `
 
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+    const response = await generateWithModelFallback({
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -110,8 +145,14 @@ async function generateResumePdf({ resume, selfDescription, jobDescription }) {
         }
     })
 
+    let text = response.text.trim()
+    if (text.startsWith("```json")) {
+        text = text.replace(/^```json/, "").replace(/```$/, "").trim()
+    } else if (text.startsWith("```")) {
+        text = text.replace(/^```/, "").replace(/```$/, "").trim()
+    }
 
-    const jsonContent = JSON.parse(response.text)
+    const jsonContent = JSON.parse(text)
 
     const pdfBuffer = await generatePdfFromHtml(jsonContent.html)
 

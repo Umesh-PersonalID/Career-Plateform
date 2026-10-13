@@ -13,21 +13,24 @@ export const useInterview = () => {
         throw new Error("useInterview must be used within an InterviewProvider")
     }
 
-    const { loading, setLoading, report, setReport, reports, setReports } = context
+    const { loading, setLoading, downloadingResume, setDownloadingResume, report, setReport, reports, setReports } = context
 
     const generateReport = async ({ jobDescription, selfDescription, resumeFile }) => {
         setLoading(true)
         let response = null
         try {
             response = await generateInterviewReport({ jobDescription, selfDescription, resumeFile })
-            setReport(response.interviewReport)
+            if (response?.interviewReport) {
+                setReport(response.interviewReport)
+            }
         } catch (error) {
-            console.log(error)
+            console.error("Failed to generate report:", error)
+            alert(error.response?.data?.message || "Failed to generate report. Please try again.")
         } finally {
             setLoading(false)
         }
 
-        return response.interviewReport
+        return response?.interviewReport
     }
 
     const getReportById = async (interviewId) => {
@@ -41,7 +44,7 @@ export const useInterview = () => {
         } finally {
             setLoading(false)
         }
-        return response.interviewReport
+        return response?.interviewReport
     }
 
     const getReports = async () => {
@@ -56,25 +59,30 @@ export const useInterview = () => {
             setLoading(false)
         }
 
-        return response.interviewReports
+        return response?.interviewReports
     }
 
     const getResumePdf = async (interviewReportId) => {
-        setLoading(true)
-        let response = null
+        setDownloadingResume(true)
         try {
-            response = await generateResumePdf({ interviewReportId })
-            const url = window.URL.createObjectURL(new Blob([ response ], { type: "application/pdf" }))
+            const data = await generateResumePdf({ interviewReportId })
+            const blob = data instanceof Blob ? data : new Blob([ data ], { type: "application/pdf" })
+            const url = window.URL.createObjectURL(blob)
             const link = document.createElement("a")
             link.href = url
             link.setAttribute("download", `resume_${interviewReportId}.pdf`)
             document.body.appendChild(link)
             link.click()
+            link.remove()
+            window.URL.revokeObjectURL(url)
+            return true
         }
         catch (error) {
-            console.log(error)
+            console.error("Failed to download resume PDF:", error)
+            alert("Failed to download resume PDF. Please check server logs and try again.")
+            return false
         } finally {
-            setLoading(false)
+            setDownloadingResume(false)
         }
     }
 
@@ -86,6 +94,6 @@ export const useInterview = () => {
         }
     }, [ interviewId ])
 
-    return { loading, report, reports, generateReport, getReportById, getReports, getResumePdf }
+    return { loading, downloadingResume, report, reports, generateReport, getReportById, getReports, getResumePdf }
 
 }
